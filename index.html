@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Scorecard">
+  <meta name="theme-color" content="#0f172a">
+  <title>Live Judging Scorecard</title>
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>???</text></svg>">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    body { -webkit-text-size-adjust: 100%; }
+    @media screen and (max-width: 768px) { input, select, textarea { font-size: 16px !important; } }
+    .touch-scroll { -webkit-overflow-scrolling: touch; }
+    @media print { .no-print { display: none !important; } body { background: white; color: black; } }
+  </style>
+
+  <script type="module">
+    import { joinRoom } from 'https://cdn.skypack.dev/trystero/torrent';
+
+    let room, sendScoreData, getScoreData;
+    let connectedPeersCount = 0;
+
+    window.initTrysteroRoom = function(contestTitle) {
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        const statusEl = document.getElementById('p2pStatus');
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> HTTPS Required for WebRTC`;
+          statusEl.className = "text-[11px] font-bold text-rose-300 flex items-center gap-1.5 bg-rose-950/80 px-2 py-0.5 rounded-full border border-rose-700/50";
+        }
+        return;
+      }
+
+      const roomId = 'scorecard-' + (contestTitle || 'singing-contest-2026').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const config = { appId: 'judging-scorecard-app-v1' };
+
+      try {
+        room = joinRoom(config, roomId);
+        [sendScoreData, getScoreData] = room.makeAction('scoreUpdate');
+
+        getScoreData((remoteData) => {
+          if (remoteData && typeof remoteData === 'object') {
+            window.data = remoteData;
+            localStorage.setItem('scorecardData', JSON.stringify(window.data));
+            if (window.renderActiveView) window.renderActiveView();
+          }
+        });
+
+        room.onPeerJoin(() => {
+          connectedPeersCount++;
+          updateSyncStatus();
+          if (window.data && sendScoreData) sendScoreData(window.data);
+        });
+
+        room.onPeerLeave(() => {
+          connectedPeersCount = Math.max(0, connectedPeersCount - 1);
+          updateSyncStatus();
+        });
+
+        updateSyncStatus();
+      } catch (err) {
+        console.warn("Trystero initialization error:", err);
+      }
+    };
+
+    window.broadcastData = function(dataPayload) {
+      if (sendScoreData) sendScoreData(dataPayload);
+    };
+
+    function updateSyncStatus() {
+      const statusEl = document.getElementById('p2pStatus');
+      if (!statusEl) return;
+
+      if (connectedPeersCount > 0) {
+        statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> P2P Live (${connectedPeersCount + 1} online)`;
+        statusEl.className = "text-[11px] font-bold text-emerald-300 flex items-center gap-1.5 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-700/50";
+      } else {
+        statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> P2P Ready (Waiting...)`;
+        statusEl.className = "text-[11px] font-bold text-amber-300 flex items-center gap-1.5 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-700/50";
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen pb-12 sm:pb-6">
+
+  <div id="loginModal" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+      
+      <div class="bg-indigo-950 p-6 text-white text-center">
+        <div class="w-12 h-12 bg-amber-400 text-indigo-950 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl font-bold shadow-md">
+          <i class="fa-solid fa-microphone-lines"></i>
+        </div>
+        <h2 id="loginModalTitle" class="text-xl font-bold">Singing Competition</h2>
+        <p class="text-indigo-200 text-xs mt-1">Select your access portal</p>
+      </div>
+
+      <div class="flex border-b border-slate-200 bg-slate-50">
+        <button onclick="setLoginRole('judge')" id="loginTab-judge" class="flex-1 py-3 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition">
+          <i class="fa-solid fa-user-tie mr-1.5"></i> Judge Access
+        </button>
+        <button onclick="setLoginRole('admin')" id="loginTab-admin" class="flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition">
+          <i class="fa-solid fa-user-shield mr-1.5"></i> Admin Access
+        </button>
+      </div>
+
+      <div class="p-6">
+        <form id="formJudgeLogin" onsubmit="handleJudgeLogin(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-500 mb-1.5">Select Your Judge Name</label>
+            <select id="loginJudgeSelect" class="w-full border border-slate-300 rounded-xl px-3 py-3 bg-slate-50 text-slate-800 font-semibold focus:ring-2 focus:ring-indigo-500 outline-none text-base">
+            </select>
+          </div>
+          <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i> No password needed for judges.</p>
+          <button type="submit" class="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-md text-base">
+            Enter Scorecard <i class="fa-solid fa-arrow-right ml-2"></i>
+          </button>
+        </form>
+
+        <form id="formAdminLogin" onsubmit="handleAdminLogin(event)" class="space-y-4 hidden">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-500 mb-1.5">Admin Password</label>
+            <input type="password" id="loginAdminPassword" placeholder="Enter password" class="w-full border border-slate-300 rounded-xl px-3 py-3 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-base">
+          </div>
+          <div id="adminLoginError" class="text-xs text-rose-600 font-bold hidden flex items-center gap-1">
+            <i class="fa-solid fa-triangle-exclamation"></i> Incorrect admin password.
+          </div>
+          <button type="submit" class="w-full min-h-[48px] bg-indigo-900 hover:bg-indigo-950 text-white font-bold rounded-xl transition shadow-md text-base">
+            Login as Admin <i class="fa-solid fa-lock-open ml-2"></i>
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <header class="bg-indigo-950 text-white shadow-md no-print sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+      
+      <div class="flex items-center justify-between sm:justify-start gap-3">
+        <div class="flex items-center gap-2.5 w-full sm:w-auto">
+          <i class="fa-solid fa-microphone-lines text-amber-400 text-xl sm:text-2xl shrink-0"></i>
+          <div class="w-full">
+            <input type="text" id="headerTitleInput" oninput="updateContestTitle(this.value)" class="bg-transparent text-white text-lg sm:text-2xl font-bold border-b border-dashed border-indigo-400/50 hover:border-amber-400 focus:border-amber-400 focus:outline-none focus:bg-indigo-900/50 px-1 py-0.5 rounded transition w-full" placeholder="Enter Contest Title...">
+            <div class="flex items-center gap-2 mt-0.5">
+              <p id="headerSubtext" class="text-indigo-300 text-[11px]"><i class="fa-solid fa-pencil text-[9px] mr-1"></i> Tap title to edit</p>
+              <div id="p2pStatus" class="text-[11px] font-bold text-amber-300 flex items-center gap-1.5 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-700/50">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span> Connecting Sync...
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 sm:hidden shrink-0">
+          <button onclick="logout()" class="px-2.5 py-1.5 bg-indigo-800 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition border border-indigo-700">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <div id="userBadge" class="hidden sm:flex items-center gap-2 bg-indigo-900/90 border border-indigo-800 px-3 py-1.5 rounded-lg text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="userBadgeText" class="font-bold text-indigo-100">Guest</span>
+          <button onclick="logout()" title="Logout" class="ml-1 text-indigo-300 hover:text-rose-400 transition">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+
+        <nav id="mainNav" class="flex gap-1.5 bg-indigo-900/80 p-1 rounded-xl overflow-x-auto touch-scroll shrink-0">
+          <button onclick="switchTab('scoring')" id="tab-scoring" class="tab-btn min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-indigo-600 text-white transition whitespace-nowrap flex items-center gap-1.5 justify-center flex-1 sm:flex-none">
+            <i class="fa-solid fa-pen-to-square"></i> <span>Scorecard</span>
+          </button>
+          <button onclick="switchTab('leaderboard')" id="tab-leaderboard" class="tab-btn min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg text-indigo-200 hover:text-white transition whitespace-nowrap flex items-center gap-1.5 justify-center flex-1 sm:flex-none">
+            <i class="fa-solid fa-trophy"></i> <span>Leaderboard</span>
+          </button>
+          <button onclick="switchTab('setup')" id="tab-setup" class="tab-btn min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg text-indigo-200 hover:text-white transition whitespace-nowrap flex items-center gap-1.5 justify-center flex-1 sm:flex-none">
+            <i class="fa-solid fa-sliders"></i> <span>Setup</span>
+          </button>
+        </nav>
+      </div>
+
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-3 sm:p-6">
+    <section id="view-scoring" class="space-y-4 sm:space-y-6">
+      <div class="bg-white p-3.5 sm:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+        <div class="flex items-center gap-2">
+          <label for="judgeSelect" class="font-bold text-slate-700 text-sm sm:text-base flex items-center gap-1.5 shrink-0">
+            <i class="fa-solid fa-user-tie text-indigo-600"></i> Active Judge:
+          </label>
+          <select id="judgeSelect" onchange="renderScoringView()" class="w-full sm:w-auto border border-slate-300 rounded-lg px-3 py-2.5 bg-slate-50 font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none text-base">
+          </select>
+        </div>
+        <div class="text-xs sm:text-sm text-slate-500 bg-slate-100 sm:bg-transparent p-2 sm:p-0 rounded-lg text-center sm:text-right">
+          Max Score Possible: <span id="totalMaxPossible" class="font-bold text-slate-800">100</span> pts
+        </div>
+      </div>
+      <div id="scoringContainer" class="space-y-4 sm:space-y-6"></div>
+    </section>
+
+    <section id="view-leaderboard" class="hidden space-y-4 sm:space-y-6">
+      <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 no-print">
+          <div>
+            <h2 class="text-lg sm:text-xl font-bold text-slate-800">Official Tabulation</h2>
+            <p class="text-xs sm:text-sm text-slate-500">Live rankings and average judge scores</p>
+          </div>
+          <div class="flex gap-2 w-full sm:w-auto">
+            <button onclick="window.print()" class="flex-1 sm:flex-none min-h-[40px] px-3.5 py-2 bg-slate-700 text-white rounded-lg text-xs sm:text-sm font-medium transition">
+              <i class="fa-solid fa-print mr-1"></i> Print / PDF
+            </button>
+            <button onclick="exportCSV()" class="flex-1 sm:flex-none min-h-[40px] px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs sm:text-sm font-medium transition">
+              <i class="fa-solid fa-file-excel mr-1"></i> Export CSV
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto touch-scroll border border-slate-200 rounded-lg">
+          <table id="leaderboardTable" class="w-full text-left border-collapse min-w-[500px]">
+            <thead>
+              <tr class="bg-indigo-900 text-white text-xs uppercase tracking-wider">
+                <th class="p-3">Rank</th>
+                <th class="p-3">#</th>
+                <th class="p-3">Contestant</th>
+                <th class="p-3">Song</th>
+                <th id="judgeHeadersStart" class="p-3"></th>
+                <th class="p-3 text-right">Avg Score</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardBody" class="divide-y divide-slate-200 text-xs sm:text-sm"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-setup" class="hidden space-y-6">
+      <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200">
+        <h2 class="text-base sm:text-lg font-bold text-slate-800 mb-3 border-b pb-2 flex items-center gap-2">
+          <i class="fa-solid fa-heading text-indigo-600"></i> Event Title
+        </h2>
+        <div class="max-w-md">
+          <input type="text" id="inputContestTitle" oninput="updateContestTitle(this.value)" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none text-base">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-list-check text-indigo-600"></i> Criteria
+            </h2>
+            <button onclick="addCriterion()" class="min-h-[36px] px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition">
+              <i class="fa-solid fa-plus mr-1"></i> Add
+            </button>
+          </div>
+          <div id="criteriaList" class="space-y-3"></div>
+        </div>
+
+        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-users text-indigo-600"></i> Judges
+            </h2>
+            <button onclick="addJudge()" class="min-h-[36px] px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition">
+              <i class="fa-solid fa-plus mr-1"></i> Add Judge
+            </button>
+          </div>
+          <div id="judgesList" class="space-y-3"></div>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+          <h2 class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa-solid fa-users-viewfinder text-indigo-600"></i> Contestants
+          </h2>
+          <button onclick="addContestant()" class="min-h-[36px] px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition">
+            <i class="fa-solid fa-plus mr-1"></i> Add Contestant
+          </button>
+        </div>
+        <div id="contestantsList" class="space-y-3"></div>
+      </div>
+
+      <div class="bg-rose-50 p-4 sm:p-6 rounded-xl border border-rose-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h3 class="font-bold text-rose-900 text-sm sm:text-base">Reset System Data</h3>
+          <p class="text-xs text-rose-700">Clear scores or revert all settings back to default.</p>
+        </div>
+        <div class="flex gap-2 w-full sm:w-auto">
+          <button onclick="clearScoresOnly()" class="flex-1 sm:flex-none min-h-[40px] px-3 py-2 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition">
+            Clear Scores
+          </button>
+          <button onclick="resetDefaults()" class="flex-1 sm:flex-none min-h-[40px] px-3 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 transition">
+            Reset All
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ADMIN_HASH = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9";
+
+    const defaultData = {
+      title: "Singing Competition 2026",
+      criteria: [
+        { id: 1, name: "Voice Quality & Tone", maxScore: 40 },
+        { id: 2, name: "Pitch & Diction", maxScore: 20 },
+        { id: 3, name: "Rhythm & Timing", maxScore: 20 },
+        { id: 4, name: "Stage Presence & Mastery", maxScore: 20 }
+      ],
+      judges: [
+        { id: 1, name: "Judge 1 - Vocal Coach" },
+        { id: 2, name: "Judge 2 - Music Producer" },
+        { id: 3, name: "Judge 3 - Guest Artist" }
+      ],
+      contestants: [
+        { id: 1, number: 1, name: "Alice Johnson", song: "Bohemian Rhapsody" },
+        { id: 2, number: 2, name: "Michael Smith", song: "Hallelujah" },
+        { id: 3, number: 3, name: "Sarah Lee", song: "I Will Always Love You" }
+      ],
+      scores: {}
+    };
+
+    window.data = JSON.parse(localStorage.getItem('scorecardData')) || defaultData;
+    let currentUser = JSON.parse(sessionStorage.getItem('scorecardUser')) || null;
+
+    function saveData() {
+      localStorage.setItem('scorecardData', JSON.stringify(window.data));
+      if (window.broadcastData) window.broadcastData(window.data);
+    }
+
+    async function hashString(str) {
+      const encoder = new TextEncoder();
+      const buffer = encoder.encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function initAuth() {
+      const loginModal = document.getElementById('loginModal');
+      const loginJudgeSelect = document.getElementById('loginJudgeSelect');
+      document.getElementById('loginModalTitle').innerText = window.data.title;
+
+      loginJudgeSelect.innerHTML = window.data.judges.map(j => `<option value="${j.id}">${j.name}</option>`).join('');
+
+      if (window.initTrysteroRoom) {
+        window.initTrysteroRoom(window.data.title);
+      }
+
+      if (!currentUser) {
+        loginModal.classList.remove('hidden');
+      } else {
+        loginModal.classList.add('hidden');
+        applyRolePermissions();
+      }
+    }
+
+    function setLoginRole(role) {
+      const tabJudge = document.getElementById('loginTab-judge');
+      const tabAdmin = document.getElementById('loginTab-admin');
+      const formJudge = document.getElementById('formJudgeLogin');
+      const formAdmin = document.getElementById('formAdminLogin');
+
+      if (role === 'judge') {
+        tabJudge.className = "flex-1 py-3 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition";
+        tabAdmin.className = "flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition";
+        formJudge.classList.remove('hidden');
+        formAdmin.classList.add('hidden');
+      } else {
+        tabAdmin.className = "flex-1 py-3 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition";
+        tabJudge.className = "flex-1 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition";
+        formAdmin.classList.remove('hidden');
+        formJudge.classList.add('hidden');
+      }
+    }
+
+    function handleJudgeLogin(e) {
+      e.preventDefault();
+      const judgeId = Number(document.getElementById('loginJudgeSelect').value);
+      const judgeObj = window.data.judges.find(j => j.id === judgeId);
+
+      currentUser = {
+        role: 'judge',
+        judgeId: judgeId,
+        name: judgeObj ? judgeObj.name : 'Judge'
+      };
+
+      sessionStorage.setItem('scorecardUser', JSON.stringify(currentUser));
+      document.getElementById('loginModal').classList.add('hidden');
+      applyRolePermissions();
+    }
+
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      const pwd = document.getElementById('loginAdminPassword').value;
+      const errDiv = document.getElementById('adminLoginError');
+
+      const inputHash = await hashString(pwd);
+
+      if (inputHash === ADMIN_HASH) {
+        errDiv.classList.add('hidden');
+        currentUser = { role: 'admin', name: 'Administrator' };
+        sessionStorage.setItem('scorecardUser', JSON.stringify(currentUser));
+        document.getElementById('loginModal').classList.add('hidden');
+        applyRolePermissions();
+      } else {
+        errDiv.classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem('scorecardUser');
+      currentUser = null;
+      document.getElementById('loginAdminPassword').value = '';
+      initAuth();
+    }
+
+    function applyRolePermissions() {
+      const tabLeaderboard = document.getElementById('tab-leaderboard');
+      const tabSetup = document.getElementById('tab-setup');
+      const judgeSelect = document.getElementById('judgeSelect');
+      const headerTitleInput = document.getElementById('headerTitleInput');
+      const headerSubtext = document.getElementById('headerSubtext');
+      const userBadgeText = document.getElementById('userBadgeText');
+
+      userBadgeText.innerText = currentUser.name;
+
+      if (currentUser.role === 'judge') {
+        tabLeaderboard.classList.add('hidden');
+        tabSetup.classList.add('hidden');
+
+        headerTitleInput.disabled = true;
+        headerTitleInput.classList.remove('hover:border-amber-400', 'border-dashed');
+        headerSubtext.innerText = "Judge Scoring Mode";
+
+        judgeSelect.value = currentUser.judgeId;
+        judgeSelect.disabled = true;
+
+        switchTab('scoring');
+      } else {
+        tabLeaderboard.classList.remove('hidden');
+        tabSetup.classList.remove('hidden');
+
+        headerTitleInput.disabled = false;
+        headerTitleInput.classList.add('hover:border-amber-400', 'border-dashed');
+        headerSubtext.innerHTML = `<i class="fa-solid fa-pencil text-[9px] mr-1"></i> Tap title to edit`;
+
+        judgeSelect.disabled = false;
+        switchTab('scoring');
+      }
+    }
+
+    function switchTab(tabName) {
+      if (currentUser && currentUser.role === 'judge' && tabName !== 'scoring') {
+        tabName = 'scoring';
+      }
+
+      document.getElementById('view-scoring').classList.add('hidden');
+      document.getElementById('view-leaderboard').classList.add('hidden');
+      document.getElementById('view-setup').classList.add('hidden');
+
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white');
+        btn.classList.add('text-indigo-200');
+      });
+
+      document.getElementById(`view-${tabName}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tab-${tabName}`);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-indigo-600', 'text-white');
+        activeBtn.classList.remove('text-indigo-200');
+      }
+
+      window.activeTabName = tabName;
+      renderActiveView();
+    }
+
+    window.renderActiveView = function() {
+      const tab = window.activeTabName || 'scoring';
+      if (tab === 'scoring') renderScoringView();
+      if (tab === 'leaderboard') renderLeaderboard();
+      if (tab === 'setup') renderSetupView();
+    };
+
+    function updateHeader() {
+      document.getElementById('headerTitleInput').value = window.data.title;
+      document.getElementById('inputContestTitle').value = window.data.title;
+    }
+
+    function updateContestTitle(val) {
+      if (currentUser && currentUser.role !== 'admin') return;
+      window.data.title = val || "";
+      saveData();
+      
+      const headerInput = document.getElementById('headerTitleInput');
+      const setupInput = document.getElementById('inputContestTitle');
+      
+      if (headerInput && headerInput.value !== val) headerInput.value = val;
+      if (setupInput && setupInput.value !== val) setupInput.value = val;
+    }
+
+    function renderScoringView() {
+      updateHeader();
+      const judgeSelect = document.getElementById('judgeSelect');
+      
+      judgeSelect.innerHTML = window.data.judges.map(j => `<option value="${j.id}">${j.name}</option>`).join('');
+      
+      if (currentUser && currentUser.role === 'judge') {
+        judgeSelect.value = currentUser.judgeId;
+      }
+      
+      const activeJudgeId = judgeSelect.value || (window.data.judges[0] ? window.data.judges[0].id : null);
+      const totalMax = window.data.criteria.reduce((sum, c) => sum + Number(c.maxScore), 0);
+      document.getElementById('totalMaxPossible').innerText = totalMax;
+
+      const container = document.getElementById('scoringContainer');
+      if (!window.data.contestants.length || !window.data.judges.length || !window.data.criteria.length) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-500 bg-white rounded-xl text-sm">Please ask an Admin to configure Contestants, Judges, and Criteria in Setup.</div>`;
+        return;
+      }
+
+      container.innerHTML = window.data.contestants.map(c => {
+        let totalScore = 0;
+        const criteriaInputs = window.data.criteria.map(crit => {
+          const scoreKey = `${activeJudgeId}_${c.id}_${crit.id}`;
+          const val = window.data.scores[scoreKey] !== undefined ? window.data.scores[scoreKey] : '';
+          if (val !== '') totalScore += Number(val);
+
+          return `
+            <div class="flex flex-col gap-1 bg-slate-50 sm:bg-transparent p-2.5 sm:p-0 rounded-lg border sm:border-none border-slate-200/80">
+              <label class="text-xs font-semibold text-slate-600 flex justify-between sm:block">
+                <span>${crit.name}</span> 
+                <span class="text-slate-400 font-normal">(Max ${crit.maxScore})</span>
+              </label>
+              <input type="number" 
+                inputmode="decimal" 
+                pattern="[0-9]*"
+                min="0" 
+                max="${crit.maxScore}" 
+                step="0.5" 
+                value="${val}" 
+                oninput="onScoreChange(${activeJudgeId}, ${c.id}, ${crit.id}, ${crit.maxScore}, this)"
+                placeholder="0"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-center bg-white text-base">
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-5">
+            <div class="flex justify-between items-center mb-3 border-b border-slate-100 pb-3 gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-800 font-bold flex items-center justify-center text-xs sm:text-sm shrink-0">#${c.number}</span>
+                <div>
+                  <h3 class="font-bold text-slate-800 text-base sm:text-lg leading-tight">${c.name}</h3>
+                  <p class="text-xs text-indigo-600 font-medium mt-0.5"><i class="fa-solid fa-music mr-1"></i> ${c.song || 'N/A'}</p>
+                </div>
+              </div>
+              <div class="bg-indigo-50 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-right border border-indigo-100 shrink-0">
+                <span class="text-[10px] sm:text-xs text-indigo-500 uppercase font-bold tracking-wider block">Total</span>
+                <span id="total_${c.id}" class="text-xl sm:text-2xl font-black text-indigo-900">${totalScore.toFixed(1)}</span>
+                <span class="text-[10px] text-slate-400">/${totalMax}</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+              ${criteriaInputs}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function onScoreChange(judgeId, contestantId, criterionId, maxVal, input) {
+      let val = parseFloat(input.value);
+      if (val > maxVal) val = maxVal, input.value = maxVal;
+      if (val < 0 || isNaN(val)) val = '';
+
+      const scoreKey = `${judgeId}_${contestantId}_${criterionId}`;
+      if (val === '') delete window.data.scores[scoreKey];
+      else window.data.scores[scoreKey] = val;
+      
+      saveData();
+
+      let newTotal = 0;
+      window.data.criteria.forEach(crit => {
+        const k = `${judgeId}_${contestantId}_${crit.id}`;
+        if (window.data.scores[k] !== undefined) newTotal += Number(window.data.scores[k]);
+      });
+      document.getElementById(`total_${contestantId}`).innerText = newTotal.toFixed(1);
+    }
+
+    function renderLeaderboard() {
+      const tableHeader = document.getElementById('leaderboardTable').querySelector('thead tr');
+      const tbody = document.getElementById('leaderboardBody');
+
+      let headersHtml = `<th class="p-3">Rank</th><th class="p-3">#</th><th class="p-3">Contestant</th><th class="p-3">Song</th>`;
+      window.data.judges.forEach(j => {
+        headersHtml += `<th class="p-3 text-center whitespace-nowrap">${j.name}</th>`;
+      });
+      headersHtml += `<th class="p-3 text-right whitespace-nowrap">Avg Score</th>`;
+      tableHeader.innerHTML = headersHtml;
+
+      const results = window.data.contestants.map(c => {
+        let judgeTotals = [], grandTotal = 0;
+
+        window.data.judges.forEach(j => {
+          let jSum = 0, hasScores = false;
+          window.data.criteria.forEach(crit => {
+            const key = `${j.id}_${c.id}_${crit.id}`;
+            if (window.data.scores[key] !== undefined) {
+              jSum += Number(window.data.scores[key]);
+              hasScores = true;
+            }
+          });
+          judgeTotals.push(hasScores ? jSum : '-');
+          if (hasScores) grandTotal += jSum;
+        });
+
+        const activeJudgeCount = judgeTotals.filter(t => t !== '-').length;
+        const average = activeJudgeCount > 0 ? (grandTotal / activeJudgeCount) : 0;
+
+        return { ...c, judgeTotals, grandTotal, average };
+      });
+
+      results.sort((a, b) => b.average - a.average);
+
+      tbody.innerHTML = results.map((r, index) => {
+        let rankBadge = `<span class="font-bold text-slate-600">${index + 1}</span>`;
+        if (index === 0) rankBadge = `<span class="bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-bold text-xs whitespace-nowrap"><i class="fa-solid fa-trophy mr-1 text-amber-500"></i>1st</span>`;
+        if (index === 1) rankBadge = `<span class="bg-slate-200 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-full font-bold text-xs whitespace-nowrap">2nd</span>`;
+        if (index === 2) rankBadge = `<span class="bg-amber-900/10 text-amber-900 border border-amber-900/20 px-2 py-0.5 rounded-full font-bold text-xs whitespace-nowrap">3rd</span>`;
+
+        const jCells = r.judgeTotals.map(t => `<td class="p-3 text-center font-medium text-slate-600 whitespace-nowrap">${typeof t === 'number' ? t.toFixed(1) : t}</td>`).join('');
+
+        return `
+          <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+            <td class="p-3">${rankBadge}</td>
+            <td class="p-3 font-semibold text-slate-500">#${r.number}</td>
+            <td class="p-3 font-bold text-slate-800 whitespace-nowrap">${r.name}</td>
+            <td class="p-3 text-slate-500 text-xs whitespace-nowrap">${r.song || '-'}</td>
+            ${jCells}
+            <td class="p-3 text-right font-black text-indigo-900 text-sm sm:text-base whitespace-nowrap">${r.average.toFixed(2)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderSetupView() {
+      updateHeader();
+      const critContainer = document.getElementById('criteriaList');
+      critContainer.innerHTML = window.data.criteria.map((c) => `
+        <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+          <input type="text" value="${c.name}" onchange="updateCriterion(${c.id}, 'name', this.value)" class="flex-grow border border-slate-300 rounded px-2.5 py-1.5 text-sm bg-white">
+          <div class="flex items-center gap-1 shrink-0">
+            <span class="text-xs text-slate-400">Max:</span>
+            <input type="number" inputmode="numeric" value="${c.maxScore}" onchange="updateCriterion(${c.id}, 'maxScore', this.value)" class="w-14 border border-slate-300 rounded px-1 py-1.5 text-sm text-center font-bold bg-white">
+          </div>
+          <button onclick="removeCriterion(${c.id})" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px]"><i class="fa-solid fa-trash-can"></i></button>
+        </div>
+      `).join('');
+
+      const judgesContainer = document.getElementById('judgesList');
+      judgesContainer.innerHTML = window.data.judges.map((j) => `
+        <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+          <input type="text" value="${j.name}" onchange="updateJudge(${j.id}, this.value)" class="flex-grow border border-slate-300 rounded px-2.5 py-1.5 text-sm bg-white">
+          <button onclick="removeJudge(${j.id})" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px]"><i class="fa-solid fa-trash-can"></i></button>
+        </div>
+      `).join('');
+
+      const contContainer = document.getElementById('contestantsList');
+      contContainer.innerHTML = window.data.contestants.map((c) => `
+        <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 flex-wrap sm:flex-nowrap">
+          <input type="number" inputmode="numeric" value="${c.number}" placeholder="#" onchange="updateContestant(${c.id}, 'number', this.value)" class="w-12 border border-slate-300 rounded px-1 py-1.5 text-sm font-bold text-center bg-white">
+          <input type="text" value="${c.name}" placeholder="Contestant Name" onchange="updateContestant(${c.id}, 'name', this.value)" class="flex-grow border border-slate-300 rounded px-2.5 py-1.5 text-sm bg-white">
+          <input type="text" value="${c.song || ''}" placeholder="Song Title" onchange="updateContestant(${c.id}, 'song', this.value)" class="flex-grow border border-slate-300 rounded px-2.5 py-1.5 text-sm bg-white">
+          <button onclick="removeContestant(${c.id})" class="text-rose-500 hover:text-rose-700 p-2 min-w-[36px]"><i class="fa-solid fa-trash-can"></i></button>
+        </div>
+      `).join('');
+    }
+
+    function addCriterion() { window.data.criteria.push({ id: Date.now(), name: "New Criterion", maxScore: 20 }); saveData(); renderSetupView(); }
+    function updateCriterion(id, key, val) { const item = window.data.criteria.find(c => c.id === id); if (item) item[key] = key === 'maxScore' ? Number(val) : val; saveData(); }
+    function removeCriterion(id) { window.data.criteria = window.data.criteria.filter(c => c.id !== id); saveData(); renderSetupView(); }
+
+    function addJudge() { window.data.judges.push({ id: Date.now(), name: `Judge ${window.data.judges.length + 1}` }); saveData(); renderSetupView(); }
+    function updateJudge(id, name) { const item = window.data.judges.find(j => j.id === id); if (item) item.name = name; saveData(); }
+    function removeJudge(id) { window.data.judges = window.data.judges.filter(j => j.id !== id); saveData(); renderSetupView(); }
+
+    function addContestant() { window.data.contestants.push({ id: Date.now(), number: window.data.contestants.length + 1, name: "New Performer", song: "" }); saveData(); renderSetupView(); }
+    function updateContestant(id, key, val) { const item = window.data.contestants.find(c => c.id === id); if (item) item[key] = key === 'number' ? Number(val) : val; saveData(); }
+    function removeContestant(id) { window.data.contestants = window.data.contestants.filter(c => c.id !== id); saveData(); renderSetupView(); }
+
+    function clearScoresOnly() { if (confirm("Clear all scores?")) { window.data.scores = {}; saveData(); alert("Scores cleared."); } }
+    function resetDefaults() { if (confirm("Reset everything to factory defaults?")) { window.data = JSON.parse(JSON.stringify(defaultData)); saveData(); renderSetupView(); alert("System reset."); } }
+
+    function exportCSV() {
+      let csv = "Rank,Number,Name,Song," + window.data.judges.map(j => `"${j.name}"`).join(",") + ",Final Average\n";
+      const results = window.data.contestants.map(c => {
+        let judgeTotals = [], grandTotal = 0;
+        window.data.judges.forEach(j => {
+          let jSum = 0, has = false;
+          window.data.criteria.forEach(crit => {
+            const key = `${j.id}_${c.id}_${crit.id}`;
+            if (window.data.scores[key] !== undefined) { jSum += Number(window.data.scores[key]); has = true; }
+          });
+          judgeTotals.push(has ? jSum : 0);
+          if (has) grandTotal += jSum;
+        });
+        const count = judgeTotals.filter(t => t > 0).length;
+        const avg = count > 0 ? grandTotal / count : 0;
+        return { ...c, judgeTotals, avg };
+      });
+      results.sort((a, b) => b.avg - a.avg);
+      results.forEach((r, idx) => { csv += `${idx + 1},${r.number},"${r.name}","${r.song || ''}",${r.judgeTotals.join(",")},${r.avg.toFixed(2)}\n`; });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', `${(window.data.title || 'Contest').replace(/\s+/g, '_')}_Results.csv`);
+      a.click();
+    }
+
+    initAuth();
+  </script>
+</body>
+</html>
