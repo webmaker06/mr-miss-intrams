@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Competition Judging Scorecard</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase Compat Libraries -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <!-- Export Libraries: SheetJS (XLSX) & jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    .accent-green { background-color: #15803d; }
+    .text-green { color: #15803d; }
+    .border-green { border-color: #15803d; }
+    input[type=range] { accent-color: #15803d; }
+    /* Touch optimization for mobile inputs */
+    input, select, button, textarea { touch-action: manipulation; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col">
+
+  <!-- HEADER -->
+  <header class="bg-white border-b-4 border-green-700 shadow-md p-3 sm:p-4 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 sm:gap-3">
+        <img src="school loogo.jpg" alt="Logo" class="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-amber-500 shadow-sm" onerror="this.src='https://via.placeholder.com/48?text=Logo'">
+        <div>
+          <h1 id="contest-title" class="text-base sm:text-xl font-bold text-slate-900 leading-tight">General Competition</h1>
+          <p class="text-xs text-slate-500 font-medium">St. Jude Thaddeus Judging System</p>
+        </div>
+      </div>
+      <div id="user-badge" class="text-right text-xs"></div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto w-full flex-grow p-3 sm:p-6">
+
+    <!-- ROLE / LOGIN SELECT VIEW -->
+    <section id="role-select-view" class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 text-center max-w-md mx-auto my-6 sm:my-10">
+      <h2 class="text-2xl font-bold text-slate-800 mb-2">Welcome</h2>
+      <p class="text-xs sm:text-sm text-slate-600 mb-6">Select your login role to proceed to scoring or administration.</p>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="block text-left text-xs font-semibold text-slate-600 mb-1">Judge Portal</label>
+          <select id="judge-select" class="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 text-sm focus:ring-2 focus:ring-green-600 outline-none">
+            <option value="">-- Select Judge Name --</option>
+          </select>
+          <button onclick="loginAsJudge()" class="w-full mt-3 bg-green-700 hover:bg-green-800 text-white font-semibold py-3 rounded-xl shadow-md transition-all active:scale-95 text-sm">
+            Enter as Judge
+          </button>
+        </div>
+
+        <div class="relative flex py-2 items-center">
+          <div class="flex-grow border-t border-slate-200"></div>
+          <span class="flex-shrink mx-4 text-slate-400 text-xs uppercase tracking-wider font-semibold">Or</span>
+          <div class="flex-grow border-t border-slate-200"></div>
+        </div>
+
+        <div>
+          <button onclick="showAdminModal()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 rounded-xl shadow-md transition-all active:scale-95 text-sm">
+            Admin Portal Access
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADMIN LOGIN MODAL -->
+    <div id="admin-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border border-slate-200">
+        <h3 class="text-xl font-bold text-slate-800 mb-2">Admin Login</h3>
+        <p class="text-xs text-slate-500 mb-4">Enter administrator key to access setup & leaderboard.</p>
+        <input type="password" id="admin-password" placeholder="Enter password" class="w-full p-3 border border-slate-300 rounded-xl mb-4 text-sm outline-none focus:ring-2 focus:ring-green-600">
+        <div class="flex gap-2">
+          <button onclick="closeAdminModal()" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2.5 rounded-xl text-sm">Cancel</button>
+          <button onclick="loginAsAdmin()" class="flex-1 bg-green-700 hover:bg-green-800 text-white font-semibold py-2.5 rounded-xl text-sm">Login</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- JUDGE VIEW -->
+    <section id="judge-view" class="hidden space-y-4 sm:space-y-6">
+      
+      <!-- CONTROLS: Division, Segment, Pair Selection -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          
+          <!-- Division Selection -->
+          <div>
+            <label class="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Competition Division</label>
+            <select id="judge-division-select" onchange="onJudgeFilterChange()" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-bold text-sm outline-none focus:ring-2 focus:ring-green-600">
+              <option value="Elementary">Elementary Division</option>
+              <option value="High School">High School Division</option>
+            </select>
+          </div>
+
+          <!-- Segment Selection -->
+          <div>
+            <label class="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Category Segment</label>
+            <select id="judge-segment-select" onchange="onJudgeFilterChange()" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-bold text-sm outline-none focus:ring-2 focus:ring-green-600">
+              <option value="production">Production Number (40%)</option>
+              <option value="sportswear">Sportswear (60%)</option>
+            </select>
+          </div>
+
+          <!-- Pair Number Selection -->
+          <div>
+            <label class="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Pair Selection</label>
+            <select id="judge-pair-select" onchange="loadJudgeScores()" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-bold text-sm outline-none focus:ring-2 focus:ring-green-600">
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2-COLUMN SCORING AREA (MALE & FEMALE) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        
+        <!-- MALE CONTESTANT COLUMN -->
+        <div class="bg-white p-4 sm:p-5 rounded-2xl border-2 border-blue-200 shadow-sm space-y-4">
+          <div class="flex justify-between items-center border-b pb-3 border-blue-100">
+            <div>
+              <span class="text-xs font-extrabold text-blue-600 uppercase tracking-wide">Male Column</span>
+              <h3 id="male-contestant-title" class="text-base sm:text-lg font-bold text-slate-900">Pair #1 - Male</h3>
+            </div>
+            <div class="text-right">
+              <span class="text-xs text-slate-400 block">Raw Score</span>
+              <span id="male-total-score" class="text-xl sm:text-2xl font-black text-blue-700">0 / 100</span>
+            </div>
+          </div>
+
+          <div id="male-criteria-container" class="space-y-3"></div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Judge Comments (Male)</label>
+            <textarea id="male-comment" rows="2" class="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Add optional comments or remarks..."></textarea>
+          </div>
+        </div>
+
+        <!-- FEMALE CONTESTANT COLUMN -->
+        <div class="bg-white p-4 sm:p-5 rounded-2xl border-2 border-pink-200 shadow-sm space-y-4">
+          <div class="flex justify-between items-center border-b pb-3 border-pink-100">
+            <div>
+              <span class="text-xs font-extrabold text-pink-600 uppercase tracking-wide">Female Column</span>
+              <h3 id="female-contestant-title" class="text-base sm:text-lg font-bold text-slate-900">Pair #1 - Female</h3>
+            </div>
+            <div class="text-right">
+              <span class="text-xs text-slate-400 block">Raw Score</span>
+              <span id="female-total-score" class="text-xl sm:text-2xl font-black text-pink-700">0 / 100</span>
+            </div>
+          </div>
+
+          <div id="female-criteria-container" class="space-y-3"></div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Judge Comments (Female)</label>
+            <textarea id="female-comment" rows="2" class="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 outline-none" placeholder="Add optional comments or remarks..."></textarea>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- SUBMIT BUTTON -->
+      <button onclick="submitScores()" class="w-full bg-green-700 hover:bg-green-800 text-white font-bold py-4 rounded-xl shadow-lg transition-all active:scale-95 text-base flex items-center justify-center gap-2">
+        <span>Save & Submit Pair Scores</span>
+      </button>
+    </section>
+
+    <!-- ADMIN VIEW -->
+    <section id="admin-view" class="hidden space-y-6">
+      
+      <!-- Navigation Tabs -->
+      <div class="flex border-b border-slate-200 gap-2">
+        <button id="tab-leaderboard-btn" onclick="switchAdminTab('leaderboard')" class="py-2.5 px-4 font-bold text-sm border-b-2 border-green-700 text-green-700">Leaderboard</button>
+        <button id="tab-config-btn" onclick="switchAdminTab('config')" class="py-2.5 px-4 font-bold text-sm text-slate-500 hover:text-slate-700">Setup & Pairs Config</button>
+      </div>
+
+      <!-- LEADERBOARD TAB -->
+      <div id="tab-leaderboard" class="space-y-4">
+        
+        <!-- Controls: Division Selector & Export Buttons -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div class="w-full sm:w-auto">
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Filter Division</label>
+            <select id="admin-division-select" onchange="renderLeaderboard()" class="w-full sm:w-60 p-2 border border-slate-300 rounded-lg text-sm font-bold">
+              <option value="Elementary">Elementary Division</option>
+              <option value="High School">High School Division</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button onclick="exportToExcel()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-xs font-bold shadow flex items-center justify-center gap-1">
+              <span>Export .XLSX</span>
+            </button>
+            <button onclick="exportToPDF()" class="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg text-xs font-bold shadow flex items-center justify-center gap-1">
+              <span>Export PDF</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Leaderboard Table Container -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+          <table id="leaderboard-table" class="w-full text-left border-collapse text-xs sm:text-sm min-w-[650px]">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b border-slate-200 text-xs uppercase tracking-wider">
+                <th class="p-3">Rank</th>
+                <th class="p-3">Pair No.</th>
+                <th class="p-3">Category / Name</th>
+                <th class="p-3 text-center">Prod. (40%)</th>
+                <th class="p-3 text-center">Sport (60%)</th>
+                <th class="p-3 text-right">Final Score</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SETUP & CONFIG TAB -->
+      <div id="tab-config" class="hidden space-y-6">
+        
+        <!-- Contest Title Config -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider text-green-700">Contest Name</h3>
+          <div class="flex gap-2">
+            <input type="text" id="config-contest-title" class="flex-1 p-2.5 border border-slate-300 rounded-lg text-sm" placeholder="Contest Title">
+            <button onclick="saveContestTitle()" class="bg-slate-800 text-white px-4 py-2.5 rounded-lg text-sm font-semibold">Save</button>
+          </div>
+        </div>
+
+        <!-- Paired Contestants Config -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider text-green-700">Contestant Pairs Setup</h3>
+            <select id="config-division-select" onchange="renderAdminConfig()" class="p-1.5 border border-slate-300 rounded text-xs font-semibold">
+              <option value="Elementary">Elementary</option>
+              <option value="High School">High School</option>
+            </select>
+          </div>
+
+          <div id="admin-pairs-list" class="space-y-2"></div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+            <input type="number" id="new-pair-number" placeholder="Pair #" class="p-2 border border-slate-300 rounded-lg text-sm">
+            <input type="text" id="new-male-name" placeholder="Male Contestant Name" class="p-2 border border-slate-300 rounded-lg text-sm">
+            <input type="text" id="new-female-name" placeholder="Female Contestant Name" class="p-2 border border-slate-300 rounded-lg text-sm">
+          </div>
+          <button onclick="addPair()" class="w-full bg-green-700 hover:bg-green-800 text-white py-2 rounded-lg text-sm font-semibold">+ Add Pair</button>
+        </div>
+
+        <!-- Judges Config -->
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider text-green-700">Judges Roster</h3>
+          <div id="admin-judges-list" class="space-y-2"></div>
+          <div class="flex gap-2 pt-2">
+            <input type="text" id="new-judge-name" placeholder="Judge Name" class="flex-1 p-2 border border-slate-300 rounded-lg text-sm">
+            <button onclick="addJudge()" class="bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">+</button>
+          </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="bg-red-50 p-4 rounded-xl border border-red-200 shadow-sm space-y-2">
+          <h3 class="font-bold text-red-800 text-sm uppercase tracking-wider">Danger Zone</h3>
+          <button onclick="clearAllScores()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-semibold text-sm">Clear All Scores</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ----------------------------------------------------
+    // CRITERIA & SUB-CRITERIA DEFINITIONS
+    // ----------------------------------------------------
+    const CRITERIA_CONFIG = {
+      production: {
+        title: "Production Number (40%)",
+        weight: 0.40,
+        subCriteria: [
+          { id: "sync", name: "Synchronization & Coordination", max: 40 },
+          { id: "energy", name: "Energy & Stage Presence", max: 30 },
+          { id: "execution", name: "Execution & Performance Quality", max: 20 },
+          { id: "impact", name: "Overall Impact", max: 10 }
+        ]
+      },
+      sportswear: {
+        title: "Sportswear (60%)",
+        weight: 0.60,
+        subCriteria: [
+          { id: "bearing", name: "Physical Bearing & Confidence", max: 35 },
+          { id: "poise", name: "Stage Presence & Poise", max: 30 },
+          { id: "presentation", name: "Sportswear Presentation", max: 20 },
+          { id: "performance", name: "Overall Performance", max: 15 }
+        ]
+      }
+    };
+
+    // ----------------------------------------------------
+    // FIREBASE & LOCAL STATE
+    // ----------------------------------------------------
+    const firebaseConfig = {
+      apiKey: "AIzaSyAadbjEVQtcRi7Bbq7sEXQTQcSqRkVh4UA",
+      authDomain: "sjtis0scoreboard.firebaseapp.com",
+      databaseURL: "https://sjtis0scoreboard-default-rtdb.firebaseio.com",
+      projectId: "sjtis0scoreboard",
+      storageBucket: "sjtis0scoreboard.firebasestorage.app",
+      messagingSenderId: "74067648743",
+      appId: "1:74067648743:web:1055ab3b3a67b02d110242"
+    };
+
+    let db;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+    } catch (e) {
+      console.warn("Firebase config mode: local preview.");
+    }
+
+    let appData = {
+      title: "St. Jude Thaddeus Competition",
+      judges: ["Judge 1", "Judge 2", "Judge 3"],
+      pairs: {
+        "Elementary": [
+          { pairNum: 1, male: "John Doe", female: "Jane Smith" },
+          { pairNum: 2, male: "Michael Brown", female: "Emily Davis" }
+        ],
+        "High School": [
+          { pairNum: 1, male: "Alex Johnson", female: "Sarah Connor" },
+          { pairNum: 2, male: "David Miller", female: "Emma Watson" }
+        ]
+      },
+      scores: {} 
+      // Scores Structure:
+      // scores[division][pairNum][judgeName][segment][gender] = { subScores: { id: score }, comment: "" }
+    };
+
+    let currentRole = null;
+    let currentJudge = null;
+
+    function initFirebaseSync() {
+      if (!db) return;
+      db.ref("scorecard_v2").on("value", (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          appData = val;
+          if (!appData.scores) appData.scores = {};
+          if (!appData.pairs) appData.pairs = { "Elementary": [], "High School": [] };
+          if (!appData.judges) appData.judges = [];
+          renderUI();
+        } else {
+          db.ref("scorecard_v2").set(appData);
+        }
+      });
+    }
+
+    function syncToFirebase() {
+      if (db) {
+        db.ref("scorecard_v2").set(appData);
+      } else {
+        renderUI();
+      }
+    }
+
+    // ----------------------------------------------------
+    // UI ROUTING & GENERAL RENDERING
+    // ----------------------------------------------------
+    function renderUI() {
+      document.getElementById("contest-title").innerText = appData.title || "General Competition";
+      
+      // Update Judge Dropdown
+      const judgeSelect = document.getElementById("judge-select");
+      judgeSelect.innerHTML = '<option value="">-- Select Judge Name --</option>';
+      (appData.judges || []).forEach(j => {
+        const opt = document.createElement("option");
+        opt.value = j;
+        opt.textContent = j;
+        if (j === currentJudge) opt.selected = true;
+        judgeSelect.appendChild(opt);
+      });
+
+      // User Badge Header
+      const userBadge = document.getElementById("user-badge");
+      if (currentRole === 'judge') {
+        userBadge.innerHTML = `<span class="bg-green-100 text-green-800 px-2.5 py-1 rounded-full font-bold">Judge: ${currentJudge}</span> <button onclick="logout()" class="text-red-500 underline ml-2">Exit</button>`;
+      } else if (currentRole === 'admin') {
+        userBadge.innerHTML = `<span class="bg-slate-800 text-white px-2.5 py-1 rounded-full font-bold">Admin</span> <button onclick="logout()" class="text-red-500 underline ml-2">Exit</button>`;
+      } else {
+        userBadge.innerHTML = `<span class="text-slate-400">Not Logged In</span>`;
+      }
+
+      renderAdminConfig();
+      renderLeaderboard();
+    }
+
+    function loginAsJudge() {
+      const selected = document.getElementById("judge-select").value;
+      if (!selected) {
+        alert("Please select your judge name.");
+        return;
+      }
+      currentRole = "judge";
+      currentJudge = selected;
+      
+      document.getElementById("role-select-view").classList.add("hidden");
+      document.getElementById("admin-view").classList.add("hidden");
+      document.getElementById("judge-view").classList.remove("hidden");
+
+      onJudgeFilterChange();
+      renderUI();
+    }
+
+    function showAdminModal() { document.getElementById("admin-modal").classList.remove("hidden"); }
+    function closeAdminModal() { document.getElementById("admin-modal").classList.add("hidden"); }
+
+    function loginAsAdmin() {
+      const pwd = document.getElementById("admin-password").value;
+      if (pwd === "admin123") {
+        currentRole = "admin";
+        currentJudge = null;
+        closeAdminModal();
+        document.getElementById("admin-password").value = "";
+        document.getElementById("role-select-view").classList.add("hidden");
+        document.getElementById("judge-view").classList.add("hidden");
+        document.getElementById("admin-view").classList.remove("hidden");
+        renderUI();
+      } else {
+        alert("Incorrect Admin Password.");
+      }
+    }
+
+    function logout() {
+      currentRole = null;
+      currentJudge = null;
+      document.getElementById("judge-view").classList.add("hidden");
+      document.getElementById("admin-view").classList.add("hidden");
+      document.getElementById("role-select-view").classList.remove("hidden");
+      renderUI();
+    }
+
+    // ----------------------------------------------------
+    // JUDGE SCORING LOGIC
+    // ----------------------------------------------------
+    function onJudgeFilterChange() {
+      const division = document.getElementById("judge-division-select").value;
+      const pairSelect = document.getElementById("judge-pair-select");
+      pairSelect.innerHTML = "";
+
+      const pairList = (appData.pairs && appData.pairs[division]) || [];
+      pairList.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.pairNum;
+        opt.textContent = `Pair #${p.pairNum}: ${p.male} & ${p.female}`;
+        pairSelect.appendChild(opt);
+      });
+
+      loadJudgeScores();
+    }
+
+    function loadJudgeScores() {
+      const division = document.getElementById("judge-division-select").value;
+      const segment = document.getElementById("judge-segment-select").value;
+      const pairNum = document.getElementById("judge-pair-select").value;
+
+      if (!pairNum) {
+        document.getElementById("male-criteria-container").innerHTML = "<p class='text-xs text-slate-400'>No pair selected.</p>";
+        document.getElementById("female-criteria-container").innerHTML = "<p class='text-xs text-slate-400'>No pair selected.</p>";
+        return;
+      }
+
+      const pairData = (appData.pairs[division] || []).find(p => p.pairNum == pairNum) || { male: "Male", female: "Female" };
+      document.getElementById("male-contestant-title").innerText = `Pair #${pairNum} - ${pairData.male}`;
+      document.getElementById("female-contestant-title").innerText = `Pair #${pairNum} - ${pairData.female}`;
+
+      // Existing saved scores
+      const existingScores = (((appData.scores[division] || {})[pairNum] || {})[currentJudge] || {})[segment] || {};
+      const maleScores = existingScores.male || { subScores: {}, comment: "" };
+      const femaleScores = existingScores.female || { subScores: {}, comment: "" };
+
+      // Render Sub-Criteria Sliders
+      const config = CRITERIA_CONFIG[segment];
+      renderCriteriaList("male", config.subCriteria, maleScores.subScores);
+      renderCriteriaList("female", config.subCriteria, femaleScores.subScores);
+
+      document.getElementById("male-comment").value = maleScores.comment || "";
+      document.getElementById("female-comment").value = femaleScores.comment || "";
+
+      calculateColumnTotal("male");
+      calculateColumnTotal("female");
+    }
+
+    function renderCriteriaList(gender, subCriteria, savedSubScores) {
+      const container = document.getElementById(`${gender}-criteria-container`);
+      container.innerHTML = "";
+
+      subCriteria.forEach(sub => {
+        const val = savedSubScores[sub.id] !== undefined ? savedSubScores[sub.id] : 0;
+        const card = document.createElement("div");
+        card.className = "bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5";
+        card.innerHTML = `
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-bold text-slate-700">${sub.name}</span>
+            <span class="font-black text-slate-900"><span id="${gender}-val-${sub.id}">${val}</span> / ${sub.max}</span>
+          </div>
+          <input type="range" min="0" max="${sub.max}" value="${val}" 
+            oninput="updateSubScore('${gender}', '${sub.id}', this.value)" 
+            class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function updateSubScore(gender, subId, val) {
+      document.getElementById(`${gender}-val-${subId}`).innerText = val;
+      calculateColumnTotal(gender);
+    }
+
+    function calculateColumnTotal(gender) {
+      const segment = document.getElementById("judge-segment-select").value;
+      const subCriteria = CRITERIA_CONFIG[segment].subCriteria;
+      let sum = 0;
+      subCriteria.forEach(sub => {
+        const el = document.getElementById(`${gender}-val-${sub.id}`);
+        if (el) sum += Number(el.innerText || 0);
+      });
+      document.getElementById(`${gender}-total-score`).innerText = `${sum} / 100`;
+    }
+
+    function submitScores() {
+      const division = document.getElementById("judge-division-select").value;
+      const segment = document.getElementById("judge-segment-select").value;
+      const pairNum = document.getElementById("judge-pair-select").value;
+
+      if (!pairNum || !currentJudge) return;
+
+      const subCriteria = CRITERIA_CONFIG[segment].subCriteria;
+
+      // Extract male scores
+      const maleSubScores = {};
+      subCriteria.forEach(sub => {
+        const el = document.getElementById(`male-val-${sub.id}`);
+        maleSubScores[sub.id] = Number(el ? el.innerText : 0);
+      });
+
+      // Extract female scores
+      const femaleSubScores = {};
+      subCriteria.forEach(sub => {
+        const el = document.getElementById(`female-val-${sub.id}`);
+        femaleSubScores[sub.id] = Number(el ? el.innerText : 0);
+      });
+
+      // Prepare state tree
+      if (!appData.scores) appData.scores = {};
+      if (!appData.scores[division]) appData.scores[division] = {};
+      if (!appData.scores[division][pairNum]) appData.scores[division][pairNum] = {};
+      if (!appData.scores[division][pairNum][currentJudge]) appData.scores[division][pairNum][currentJudge] = {};
+
+      appData.scores[division][pairNum][currentJudge][segment] = {
+        male: {
+          subScores: maleSubScores,
+          comment: document.getElementById("male-comment").value.trim()
+        },
+        female: {
+          subScores: femaleSubScores,
+          comment: document.getElementById("female-comment").value.trim()
+        }
+      };
+
+      syncToFirebase();
+      alert(`Scores submitted successfully for Pair #${pairNum}!`);
+    }
+
+    // ----------------------------------------------------
+    // LEADERBOARD & COMPUTATIONS
+    // ----------------------------------------------------
+    function calculateFinalScores(division) {
+      const pairs = appData.pairs[division] || [];
+      const judges = appData.judges || [];
+      const scoresTree = (appData.scores && appData.scores[division]) || {};
+
+      let results = [];
+
+      pairs.forEach(p => {
+        const pairScores = scoresTree[p.pairNum] || {};
+
+        ['male', 'female'].forEach(gender => {
+          let prodTotal = 0, prodCount = 0;
+          let sportTotal = 0, sportCount = 0;
+
+          judges.forEach(j => {
+            const judgeSegs = pairScores[j] || {};
+
+            // Production Score Calculation
+            if (judgeSegs.production && judgeSegs.production[gender]) {
+              const subMap = judgeSegs.production[gender].subScores || {};
+              const raw = Object.values(subMap).reduce((a, b) => a + b, 0);
+              prodTotal += raw;
+              prodCount++;
+            }
+
+            // Sportswear Score Calculation
+            if (judgeSegs.sportswear && judgeSegs.sportswear[gender]) {
+              const subMap = judgeSegs.sportswear[gender].subScores || {};
+              const raw = Object.values(subMap).reduce((a, b) => a + b, 0);
+              sportTotal += raw;
+              sportCount++;
+            }
+          });
+
+          const prodAvg = prodCount > 0 ? (prodTotal / prodCount) : 0;
+          const sportAvg = sportCount > 0 ? (sportTotal / sportCount) : 0;
+          
+          // Formula: 40% Production + 60% Sportswear
+          const finalScore = (prodAvg * 0.40) + (sportAvg * 0.60);
+
+          results.push({
+            pairNum: p.pairNum,
+            gender: gender.toUpperCase(),
+            name: gender === 'male' ? p.male : p.female,
+            prodAvg: prodAvg.toFixed(2),
+            sportAvg: sportAvg.toFixed(2),
+            finalScore: finalScore.toFixed(2)
+          });
+        });
+      });
+
+      // Sort Descending by Final Score
+      results.sort((a, b) => b.finalScore - a.finalScore);
+      return results;
+    }
+
+    function renderLeaderboard() {
+      const division = document.getElementById("admin-division-select").value;
+      const tbody = document.getElementById("leaderboard-body");
+      tbody.innerHTML = "";
+
+      const results = calculateFinalScores(division);
+
+      results.forEach((r, idx) => {
+        const tr = document.createElement("tr");
+        tr.className = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60";
+        tr.innerHTML = `
+          <td class="p-3 font-extrabold ${idx === 0 ? 'text-amber-500' : 'text-slate-600'}">#${idx + 1}</td>
+          <td class="p-3 font-bold text-slate-700">Pair #${r.pairNum}</td>
+          <td class="p-3">
+            <span class="font-bold text-slate-900">${r.name}</span>
+            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded font-bold ${r.gender === 'MALE' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'}">${r.gender}</span>
+          </td>
+          <td class="p-3 text-center text-slate-600">${r.prodAvg}</td>
+          <td class="p-3 text-center text-slate-600">${r.sportAvg}</td>
+          <td class="p-3 text-right font-black text-green-700 text-base">${r.finalScore}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ----------------------------------------------------
+    // EXPORT FUNCTIONS (.XLSX & PDF)
+    // ----------------------------------------------------
+    function exportToExcel() {
+      const division = document.getElementById("admin-division-select").value;
+      const results = calculateFinalScores(division);
+
+      const excelData = results.map((r, idx) => ({
+        "Rank": idx + 1,
+        "Pair Number": r.pairNum,
+        "Contestant Name": r.name,
+        "Gender": r.gender,
+        "Production Avg (40%)": Number(r.prodAvg),
+        "Sportswear Avg (60%)": Number(r.sportAvg),
+        "Final Score": Number(r.finalScore)
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `${division} Results`);
+      XLSX.writeFile(workbook, `${appData.title}_${division}_Leaderboard.xlsx`);
+    }
+
+    function exportToPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const division = document.getElementById("admin-division-select").value;
+      const results = calculateFinalScores(division);
+
+      doc.setFontSize(16);
+      doc.text(appData.title || "Competition Results", 14, 15);
+      doc.setFontSize(11);
+      doc.text(`Official Leaderboard - ${division} Division`, 14, 22);
+
+      const tableHeaders = [["Rank", "Pair #", "Contestant Name", "Gender", "Prod Avg (40%)", "Sport Avg (60%)", "Final Score"]];
+      const tableRows = results.map((r, idx) => [
+        `#${idx + 1}`,
+        `Pair #${r.pairNum}`,
+        r.name,
+        r.gender,
+        r.prodAvg,
+        r.sportAvg,
+        r.finalScore
+      ]);
+
+      doc.autoTable({
+        head: tableHeaders,
+        body: tableRows,
+        startY: 28,
+        theme: 'striped',
+        headStyles: { fillColor: [21, 128, 61] }
+      });
+
+      doc.save(`${appData.title}_${division}_Leaderboard.pdf`);
+    }
+
+    // ----------------------------------------------------
+    // ADMIN CONFIGURATION FUNCTIONS
+    // ----------------------------------------------------
+    function switchAdminTab(tab) {
+      if (tab === 'leaderboard') {
+        document.getElementById('tab-leaderboard').classList.remove('hidden');
+        document.getElementById('tab-config').classList.add('hidden');
+        document.getElementById('tab-leaderboard-btn').className = "py-2.5 px-4 font-bold text-sm border-b-2 border-green-700 text-green-700";
+        document.getElementById('tab-config-btn').className = "py-2.5 px-4 font-bold text-sm text-slate-500 hover:text-slate-700";
+      } else {
+        document.getElementById('tab-leaderboard').classList.add('hidden');
+        document.getElementById('tab-config').classList.remove('hidden');
+        document.getElementById('tab-config-btn').className = "py-2.5 px-4 font-bold text-sm border-b-2 border-green-700 text-green-700";
+        document.getElementById('tab-leaderboard-btn').className = "py-2.5 px-4 font-bold text-sm text-slate-500 hover:text-slate-700";
+      }
+    }
+
+    function renderAdminConfig() {
+      document.getElementById("config-contest-title").value = appData.title || "";
+      const division = document.getElementById("config-division-select").value;
+
+      // Render Pairs Config
+      const pairsList = document.getElementById("admin-pairs-list");
+      pairsList.innerHTML = "";
+      ((appData.pairs && appData.pairs[division]) || []).forEach((p, idx) => {
+        pairsList.innerHTML += `
+          <div class="flex justify-between items-center bg-slate-50 p-2.5 rounded border border-slate-200 text-xs">
+            <span><strong>Pair #${p.pairNum}:</strong> ${p.male} & ${p.female}</span>
+            <button onclick="removePair('${division}', ${idx})" class="text-red-500 font-bold">Delete</button>
+          </div>
+        `;
+      });
+
+      // Render Judges Config
+      const jList = document.getElementById("admin-judges-list");
+      jList.innerHTML = "";
+      (appData.judges || []).forEach((j, idx) => {
+        jList.innerHTML += `
+          <div class="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-200 text-xs">
+            <span>${j}</span>
+            <button onclick="removeJudge(${idx})" class="text-red-500 font-bold">Delete</button>
+          </div>
+        `;
+      });
+    }
+
+    function saveContestTitle() {
+      appData.title = document.getElementById("config-contest-title").value.trim();
+      syncToFirebase();
+    }
+
+    function addPair() {
+      const division = document.getElementById("config-division-select").value;
+      const pairNum = Number(document.getElementById("new-pair-number").value);
+      const male = document.getElementById("new-male-name").value.trim();
+      const female = document.getElementById("new-female-name").value.trim();
+
+      if (pairNum > 0 && male && female) {
+        if (!appData.pairs) appData.pairs = {};
+        if (!appData.pairs[division]) appData.pairs[division] = [];
+
+        appData.pairs[division].push({ pairNum, male, female });
+        document.getElementById("new-pair-number").value = "";
+        document.getElementById("new-male-name").value = "";
+        document.getElementById("new-female-name").value = "";
+        syncToFirebase();
+      }
+    }
+
+    function removePair(division, idx) {
+      appData.pairs[division].splice(idx, 1);
+      syncToFirebase();
+    }
+
+    function addJudge() {
+      const name = document.getElementById("new-judge-name").value.trim();
+      if (name) {
+        if (!appData.judges) appData.judges = [];
+        appData.judges.push(name);
+        document.getElementById("new-judge-name").value = "";
+        syncToFirebase();
+      }
+    }
+
+    function removeJudge(idx) {
+      appData.judges.splice(idx, 1);
+      syncToFirebase();
+    }
+
+    function clearAllScores() {
+      if (confirm("Are you sure you want to clear all scorecard records?")) {
+        appData.scores = {};
+        syncToFirebase();
+      }
+    }
+
+    // Initialize Sync
+    initFirebaseSync();
+    renderUI();
+  </script>
+</body>
+</html>
